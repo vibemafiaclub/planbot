@@ -187,8 +187,8 @@ async function handleTurn(opts: {
 
 // 발신자가 본인 소속 팀을 스스로 등록한다. 이후 이 사람이 대상 제품을 명시하지 않고 질문하면
 // (0번 상황분류 E) 이 팀을 힌트로 사용한다 — 클라이언트 쪽에 전체 인원 명단을 별도로 받을 필요가 없다.
-// UX: `@planbot team` 멘션 → 번호 매긴 팀 목록을 새 스레드로 올림 → 사용자가 그 스레드에 번호로 답글 → 등록.
-async function startTeamSelection(channel: string, userId: string): Promise<void> {
+// UX: `@planbot team` 멘션 → 유저 메시지에 답글로 번호 매긴 팀 목록을 올림 → 사용자가 그 스레드에 번호로 답글 → 등록.
+async function startTeamSelection(channel: string, userId: string, triggerTs: string): Promise<void> {
   const currentTeam = await getTeam(userId);
   const teams = TEAMS;
   const deregisterIndex = currentTeam ? teams.length + 1 : null;
@@ -201,11 +201,10 @@ async function startTeamSelection(channel: string, userId: string): Promise<void
     lines.push(`${deregisterIndex}. 지금 팀 해제 (현재 등록: ${currentTeam})`);
   }
 
-  const posted = await app.client.chat.postMessage({ channel, text: lines.join('\n') });
+  await app.client.chat.postMessage({ channel, thread_ts: triggerTs, text: lines.join('\n') });
 
-  if (posted.ts) {
-    setPendingSelection(channel, posted.ts, { userId, teams, deregisterIndex });
-  }
+  // 스레드 루트는 유저의 원본 멘션 메시지(triggerTs)다 — 이후 번호 답글도 같은 thread_ts로 온다.
+  setPendingSelection(channel, triggerTs, { userId, teams, deregisterIndex });
 }
 
 // 스레드에서 처음 멘션됐을 때 — 스레드를 "활성"으로 등록하고 응답
@@ -219,7 +218,7 @@ app.event('app_mention', async ({ event }) => {
   const command = detectMentionCommand(triggerText, botId);
 
   if (command === 'team') {
-    if (event.user) await startTeamSelection(channel, event.user);
+    if (event.user) await startTeamSelection(channel, event.user, event.ts);
     return;
   }
 
