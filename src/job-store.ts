@@ -4,8 +4,7 @@ import type { Classification, GateLens } from './gate-schema.js';
 export interface Job {
   token: string;
   channel: string;
-  /** null이면 1:1 DM 최상위 대화 — 답장을 스레드가 아닌 채널 최상위로 보낸다 */
-  threadTs: string | null;
+  threadTs: string;
   triggerMessageTs: string;
   processingMessageTs: string | null;
   done: boolean;
@@ -16,7 +15,7 @@ export interface Job {
 
 const jobs = new Map<string, Job>();
 
-export function createJob(opts: { channel: string; threadTs: string | null; triggerMessageTs: string }): Job {
+export function createJob(opts: { channel: string; threadTs: string; triggerMessageTs: string }): Job {
   const token = crypto.randomBytes(16).toString('hex');
   const job: Job = {
     token,
