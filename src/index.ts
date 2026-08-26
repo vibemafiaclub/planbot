@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { rm } from 'node:fs/promises';
 import pkg from '@slack/bolt';
 const { App } = pkg;
-import { createJob } from './job-store.js';
+import { createJob, deleteJob } from './job-store.js';
 import { runGatebotSession } from './claude-runner.js';
 import { startCallbackServer } from './callback-server.js';
 import { buildPrompt } from './system-prompt.js';
@@ -155,6 +155,30 @@ async function handleTurn(opts: {
 
     runGatebotSession({ prompt, token: job.token })
       .then(async () => {
+        if (job.done) {
+          await logTurn({
+            ...logBase,
+            sender_user_id: senderUserId,
+            sender_name: senderName,
+            classification: job.classification,
+            gate_issues: job.gateIssues,
+            latency_ms: Date.now() - startedAt,
+            status: 'ok',
+          });
+          return;
+        }
+        // claude 프로세스는 정상 종료했지만 reply_to_slack 콜백이 오지 않은 경우 —
+        // 조용한 무응답으로 남기지 않고 사용자에게 실패를 알리고, 로그에 no_reply로 구분해 남긴다.
+        console.error('[planbot] session ended without reply callback', { thread_ts: threadTs });
+        await app.client.chat.postMessage({
+          channel,
+          thread_ts: threadTs,
+          text: '⚠️ 답변 생성에 실패했습니다 (탐색은 끝났지만 답변이 전송되지 않음). 같은 내용으로 다시 한번 시도해주세요.',
+        }).catch(() => {});
+        if (job.processingMessageTs) {
+          await app.client.chat.delete({ channel, ts: job.processingMessageTs }).catch(() => {});
+        }
+        deleteJob(job.token);
         await logTurn({
           ...logBase,
           sender_user_id: senderUserId,
@@ -162,7 +186,8 @@ async function handleTurn(opts: {
           classification: job.classification,
           gate_issues: job.gateIssues,
           latency_ms: Date.now() - startedAt,
-          status: 'ok',
+          status: 'no_reply',
+          error: 'claude exited 0 but reply_to_slack callback never fired',
         });
       })
       .catch(async (err) => {
@@ -175,6 +200,7 @@ async function handleTurn(opts: {
         if (job.processingMessageTs) {
           await app.client.chat.delete({ channel, ts: job.processingMessageTs }).catch(() => {});
         }
+        deleteJob(job.token);
         await logTurn({
           ...logBase,
           sender_user_id: senderUserId,

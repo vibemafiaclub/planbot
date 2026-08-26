@@ -20,7 +20,7 @@ export interface TurnLogEntry {
   classification: Classification | null;
   gate_issues: GateLens[];
   latency_ms: number;
-  status: 'ok' | 'error';
+  status: 'ok' | 'error' | 'no_reply';
   error?: string;
 }
 

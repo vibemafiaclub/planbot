@@ -27,7 +27,9 @@ export async function runGatebotSession(opts: { prompt: string; token: string })
   const mcpConfig = {
     mcpServers: {
       planbot: {
-        command: 'node',
+        // PATH의 'node'가 아니라 지금 이 프로세스를 띄운 node 실행 파일 절대경로를 쓴다
+        // — 원격 PC에서 claude가 상속받은 PATH에 node가 없어도 MCP 서버 spawn이 실패하지 않는다.
+        command: process.execPath,
         args: [MCP_SERVER_ENTRY],
         env: {
           CALLBACK_URL: `http://127.0.0.1:${CALLBACK_PORT}/reply/${opts.token}`,
