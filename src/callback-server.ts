@@ -42,14 +42,14 @@ export function startCallbackServer(client: WebClient, port: number): void {
       if (body.filePaths && body.filePaths.length > 0) {
         await client.filesUploadV2({
           channel_id: job.channel,
-          thread_ts: job.threadTs,
+          thread_ts: job.threadTs ?? undefined,
           initial_comment: body.text,
           file_uploads: body.filePaths.map((p) => ({ file: p })),
         });
       } else {
         await client.chat.postMessage({
           channel: job.channel,
-          thread_ts: job.threadTs,
+          thread_ts: job.threadTs ?? undefined,
           text: body.text,
         });
       }
