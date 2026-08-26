@@ -186,7 +186,7 @@ async function handleTurn(opts: {
 }
 
 // 발신자가 본인 소속 팀을 스스로 등록한다. 이후 이 사람이 대상 제품을 명시하지 않고 질문하면
-// (0번 상황분류 E) 이 팀을 힌트로 사용한다 — 고객사 쪽에 전체 인원 명단을 별도로 받을 필요가 없다.
+// (0번 상황분류 E) 이 팀을 힌트로 사용한다 — 클라이언트 쪽에 전체 인원 명단을 별도로 받을 필요가 없다.
 // UX: `@planbot team` 멘션 → 번호 매긴 팀 목록을 새 스레드로 올림 → 사용자가 그 스레드에 번호로 답글 → 등록.
 async function startTeamSelection(channel: string, userId: string): Promise<void> {
   const currentTeam = await getTeam(userId);
