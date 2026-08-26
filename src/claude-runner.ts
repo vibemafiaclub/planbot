@@ -49,7 +49,7 @@ export async function runGatebotSession(opts: { prompt: string; token: string })
       const args = [
         '--print',
         '--model', 'sonnet',
-        '--allowedTools', 'Read,Grep,Glob,Bash(jira issue view:*),mcp__planbot__reply_to_slack',
+        '--allowedTools', 'Read,Grep,Glob,Bash(jira issue view:*),mcp__planbot__reply_to_slack,mcp__planbot__propose_jira_comment',
         '--output-format=text',
         '--mcp-config', mcpConfigPath,
         '--strict-mcp-config',

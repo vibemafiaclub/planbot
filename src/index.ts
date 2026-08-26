@@ -10,6 +10,7 @@ import { downloadSlackFiles, type SlackFileRef } from './attachment-fetch.js';
 import { markThreadActive, isThreadActive, nextTurnIndex, getThreadMode, type ThreadMode } from './thread-store.js';
 import { logTurn } from './logger.js';
 import { getTeam, setTeam, clearTeam, TEAMS, TEAM_REPOS } from './team-registry.js';
+import { getProposal, clearProposal, addJiraComment } from './jira-comment.js';
 import { setPendingSelection, getPendingSelection, clearPendingSelection } from './team-selection-store.js';
 
 const PROCESSING_TEXT = '(기획봇이 요청을 처리중입니다. 잠시만 기다려주세요.)';
@@ -150,6 +151,8 @@ async function handleTurn(opts: {
       senderUserId ? resolveUserName(senderUserId) : Promise.resolve(null),
       senderUserId ? getTeam(senderUserId) : Promise.resolve(null),
     ]);
+    job.senderUserId = senderUserId;
+    job.senderName = senderName;
     const senderTeamRepos = senderTeam ? TEAM_REPOS[senderTeam] : null;
     const prompt = buildPrompt(threadContext, senderTeam, senderTeamRepos, mode);
 
@@ -256,6 +259,58 @@ async function startTeamSelection(channel: string, userId: string, triggerTs: st
 }
 
 /**
+ * 대기 중인 Jira 댓글 등록 제안이 있고 이 메시지가 `등록`/`취소` 응답이면 소비한다.
+ * `등록`/`취소`가 아닌 메시지는 소비하지 않고 일반 턴으로 흘려보낸다 (제안은 만료 전까지 대기 유지).
+ * @returns 메시지를 소비했으면 true (다른 핸들링 금지)
+ */
+async function handleJiraProposalReply(
+  channel: string,
+  threadTs: string,
+  userId: string | null,
+  text: string,
+): Promise<boolean> {
+  const proposal = getProposal(channel, threadTs);
+  if (!proposal) return false;
+
+  const t = text.trim().toLowerCase();
+  const isApprove = ['등록', 'ㅇㅋ', 'ok'].includes(t);
+  const isCancel = ['취소', 'cancel'].includes(t);
+  if (!isApprove && !isCancel) return false;
+
+  const respond = (msg: string) =>
+    app.client.chat.postMessage({ channel, thread_ts: threadTs, text: msg }).catch(() => {});
+
+  if (proposal.requesterUserId && userId !== proposal.requesterUserId) {
+    await respond(`이 제안은 요청자(<@${proposal.requesterUserId}>)만 승인/취소할 수 있습니다.`);
+    return true;
+  }
+
+  clearProposal(channel, threadTs);
+
+  if (isCancel) {
+    await respond('Jira 댓글 등록을 취소했습니다.');
+    return true;
+  }
+
+  const body = [
+    '[기획 보완 — planbot 게이트 검토 후 확정]',
+    '',
+    proposal.comment,
+    '',
+    `(작성: ${proposal.requesterName ?? '알 수 없음'} · Slack에서 승인 후 planbot이 등록)`,
+  ].join('\n');
+
+  try {
+    await addJiraComment(proposal.ticket, body);
+    await respond(`✅ *${proposal.ticket}* 에 댓글을 등록했습니다.`);
+  } catch (err) {
+    console.error('[planbot] jira comment add failed', err);
+    await respond(`⚠️ Jira 댓글 등록에 실패했습니다: ${String((err as Error)?.message ?? err)}`);
+  }
+  return true;
+}
+
+/**
  * 대기 중인 팀 선택이 있으면 이 메시지를 번호 답변으로 소비한다.
  * @returns 해당 키에 대기 중인 선택이 있었으면 true (메시지를 소비했으므로 다른 핸들링 금지)
  */
@@ -318,6 +373,10 @@ app.event('app_mention', async ({ event }) => {
     return;
   }
 
+  // 대기 중인 Jira 댓글 제안에 대한 `@planbot 등록`/`@planbot 취소` 승인 응답 처리 (비활성 스레드용 경로)
+  const strippedText = triggerText.replace(`<@${botId}>`, '').trim();
+  if (await handleJiraProposalReply(channel, threadTs, event.user ?? null, strippedText)) return;
+
   await handleTurn({
     channel,
     threadTs,
@@ -338,6 +397,9 @@ app.message(async ({ message }) => {
 
   const botId = await getBotUserId();
   if (m.text?.includes(`<@${botId}>`)) return; // 멘션 포함 메시지는 app_mention 핸들러가 이미 처리함
+
+  // 대기 중인 Jira 댓글 제안에 대한 `등록`/`취소` 승인 응답 처리
+  if (await handleJiraProposalReply(m.channel, m.thread_ts, m.user ?? null, m.text ?? '')) return;
 
   await handleTurn({
     channel: m.channel,

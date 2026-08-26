@@ -7,6 +7,9 @@ export interface Job {
   threadTs: string;
   triggerMessageTs: string;
   processingMessageTs: string | null;
+  /** 이 턴을 트리거한 발화자 — Jira 댓글 제안의 승인 권한자 판별에 사용 */
+  senderUserId: string | null;
+  senderName: string | null;
   done: boolean;
   createdAt: number;
   classification: Classification | null;
@@ -29,6 +32,8 @@ export function createJob(opts: { channel: string; threadTs: string; triggerMess
     threadTs: opts.threadTs,
     triggerMessageTs: opts.triggerMessageTs,
     processingMessageTs: null,
+    senderUserId: null,
+    senderName: null,
     done: false,
     createdAt: Date.now(),
     classification: null,

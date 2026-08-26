@@ -23,6 +23,17 @@
 파일 경로·렌즈 영문 id·사내 내부 용어를 노출하지 않는 비개발직군 친화 스타일을 강제한다.
 지라 티켓 번호만 제시되면 `jira issue view`로 원문을 먼저 확보해 평가하고, 확보 실패 시 되묻는다.
 
+**Jira 댓글로 보완 맥락 남기기** (feedback 모드 전용): 게이트 지적을 받은 기획자가 보완 내용을
+확정한 뒤 "이걸 지라에 남겨줘"라고 명시적으로 요청하면, claude가 `propose_jira_comment` MCP 툴로
+댓글 등록을 **제안**한다. 즉시 등록되지 않는다 — 봇이 스레드에 티켓 번호와 댓글 본문 미리보기를
+올리고, **요청자 본인이 `등록`이라고 답글을 달아야**(비활성 스레드에서는 `@planbot 등록`) 메인
+프로세스가 `jira issue comment add`를 실행한다. `취소`로 취소, 30분 뒤 자동 만료. 댓글에는
+`[기획 보완 — planbot 게이트 검토 후 확정]` 접두사와 요청자 이름이 붙는다. 티켓 본문 수정은
+하지 않는다(소유권·포맷 파손 리스크) — 본문 반영이 필요하면 기획자가 댓글 내용을 직접 옮긴다.
+claude의 allowedTools에는 Jira 쓰기 명령이 없어, 프롬프트 인젝션이 있어도 사람 승인 없이는
+Jira에 아무것도 남길 수 없다. 등록 실행 계정은 원격 PC의 jira-cli 인증 계정이며 해당 프로젝트
+댓글 쓰기 권한이 필요하다 (`JIRA_BIN`으로 경로 지정 가능).
+
 ## 1:1 DM 사용
 
 채널 멘션 외에 **봇과의 1:1 DM**으로도 쓸 수 있다 (Slack 앱에 `im:history` scope + `message.im`
@@ -71,8 +82,10 @@ job-token으로 세션을 구분하므로 동시에 여러 스레드에서 멘�
 
 **도구 범위**: 슬랙 스레드 텍스트·첨부가 그대로 프롬프트에 들어가 프롬프트 인젝션에 노출돼 있으므로,
 `--dangerously-skip-permissions` 대신 `--allowedTools`로 `Read`/`Grep`/`Glob`/`Bash(jira issue view:*)`/
-`mcp__planbot__reply_to_slack`만 허용한다. Write·Edit·임의 Bash 명령은 막혀 있어 claude가 레포에
-쓰기를 하거나 임의 명령을 실행할 수 없다 — 답변 생성 외의 부작용이 구조적으로 불가능하다.
+`mcp__planbot__reply_to_slack`/`mcp__planbot__propose_jira_comment`만 허용한다. Write·Edit·임의 Bash
+명령은 막혀 있어 claude가 레포에 쓰기를 하거나 임의 명령을 실행할 수 없다. Jira 쓰기(`comment add`)도
+claude 권한에는 없고, 제안 → 사람 승인 → 메인 프로세스 실행 구조라 답변 생성 외의 부작용은
+사람 승인을 거치지 않고는 구조적으로 불가능하다.
 지라 조회는 [jira-cli](https://github.com/ankitpokhrel/jira-cli)(`jira issue view <TICKET-ID>`)가
 원격 PC에 설치·인증돼 있어야 동작한다.
 
