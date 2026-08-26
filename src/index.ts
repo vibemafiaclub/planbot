@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { rm } from 'node:fs/promises';
 import pkg from '@slack/bolt';
 const { App } = pkg;
-import { createJob, deleteJob } from './job-store.js';
+import { createJob, deleteJob, LOADING_REACTION } from './job-store.js';
 import { runGatebotSession } from './claude-runner.js';
 import { startCallbackServer } from './callback-server.js';
 import { buildPrompt } from './system-prompt.js';
@@ -134,7 +134,7 @@ async function handleTurn(opts: {
   };
 
   try {
-    await app.client.reactions.add({ channel, timestamp: triggerMessageTs, name: 'eyes' }).catch(() => {});
+    await app.client.reactions.add({ channel, timestamp: triggerMessageTs, name: LOADING_REACTION }).catch(() => {});
 
     const processingMsg = await app.client.chat.postMessage({
       channel,
@@ -178,6 +178,7 @@ async function handleTurn(opts: {
         if (job.processingMessageTs) {
           await app.client.chat.delete({ channel, ts: job.processingMessageTs }).catch(() => {});
         }
+        await app.client.reactions.remove({ channel, timestamp: triggerMessageTs, name: LOADING_REACTION }).catch(() => {});
         deleteJob(job.token);
         await logTurn({
           ...logBase,
@@ -200,6 +201,7 @@ async function handleTurn(opts: {
         if (job.processingMessageTs) {
           await app.client.chat.delete({ channel, ts: job.processingMessageTs }).catch(() => {});
         }
+        await app.client.reactions.remove({ channel, timestamp: triggerMessageTs, name: LOADING_REACTION }).catch(() => {});
         deleteJob(job.token);
         await logTurn({
           ...logBase,

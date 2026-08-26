@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { WebClient } from '@slack/web-api';
-import { getJob, deleteJob } from './job-store.js';
+import { getJob, deleteJob, LOADING_REACTION } from './job-store.js';
 import type { Classification, GateLens } from './gate-schema.js';
 
 interface ReplyBody {
@@ -57,10 +57,10 @@ export function startCallbackServer(client: WebClient, port: number): void {
       if (job.processingMessageTs) {
         await client.chat.delete({ channel: job.channel, ts: job.processingMessageTs }).catch(() => {});
       }
-      await client.reactions.add({
+      await client.reactions.remove({
         channel: job.channel,
         timestamp: job.triggerMessageTs,
-        name: 'white_check_mark',
+        name: LOADING_REACTION,
       }).catch(() => {});
 
       job.done = true;

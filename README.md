@@ -40,12 +40,12 @@
 
 ```
 슬랙 멘션 (app_mention) — 또는 이미 활성화된 스레드 안의 답글(재멘션 불필요)
-  → 👀 반응 + "처리중" 스레드 메시지
+  → :loading: 반응 + "처리중" 스레드 메시지
   → 스레드 전체 히스토리(텍스트/첨부/반응/작성자) 수집 + 첨부파일 실제 다운로드
   → claude code headless 실행 (claude -p), REPO_ROOT를 cwd로 레포들 탐색
      └─ MCP 서버(planbot) 연동: claude가 답변 확정 시 reply_to_slack 툴 호출
   → MCP 서버가 로컬 콜백 서버(HTTP)에 POST → 콜백 서버가 실제 슬랙 전송 수행
-  → "처리중" 메시지 삭제 + ✅ 반응
+  → "처리중" 메시지 삭제 + :loading: 반응 제거 (성공/실패/무응답 모든 종료 경로에서 제거)
 ```
 
 프로세스가 3개로 나뉘어 있다:
@@ -103,7 +103,8 @@ placeholder로만 유지하고, 실 배포 시 실제 값으로 교체한다. �
 **OAuth Scopes (Bot Token Scopes)**
 - `app_mentions:read` — 멘션 이벤트 수신
 - `chat:write` — 메시지 전송
-- `reactions:write` — 👀 / ✅ 반응
+- `reactions:write` — 처리중 :loading: 반응 추가/제거 (**워크스페이스에 `loading` 커스텀 이모지 등록 필요**,
+  이름은 `.env`의 `LOADING_REACTION`으로 변경 가능 — 미등록이면 반응 없이 조용히 넘어감)
 - `files:write` — 첨부파일 전송 (`filesUploadV2`)
 - `files:read` — 첨부파일 다운로드(`url_private`) — 없으면 기획서 PDF/이미지 첨부를 못 읽음
 - `channels:history` (+ private 채널도 쓸 경우 `groups:history`) — 스레드 히스토리 조회
