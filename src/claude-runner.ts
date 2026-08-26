@@ -15,6 +15,10 @@ const MCP_SERVER_ENTRY = path.join(__dirname, 'mcp-server.js');
 /**
  * 이 봇의 답변 채널은 MCP 콜백(reply_to_slack)이다.
  * claude가 프로세스를 정상 종료해도 그 stdout은 사용하지 않는다 — 관측/디버깅용 로그일 뿐.
+ *
+ * --dangerously-skip-permissions는 쓰지 않는다. 슬랙 스레드 텍스트/첨부가 그대로 프롬프트에 들어가므로
+ * 프롬프트 인젝션에 노출돼 있고, headless(--print)에서는 화이트리스트 밖 툴이 조용히 거부되므로
+ * --allowedTools만으로 승인 없이도 안전하게 도구 범위를 좁힐 수 있다.
  */
 export async function runGatebotSession(opts: { prompt: string; token: string }): Promise<void> {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'planbot-'));
@@ -42,7 +46,8 @@ export async function runGatebotSession(opts: { prompt: string; token: string })
 
       const args = [
         '--print',
-        '--dangerously-skip-permissions',
+        '--model', 'sonnet',
+        '--allowedTools', 'Read,Grep,Glob,Bash(jira issue view:*),mcp__planbot__reply_to_slack',
         '--output-format=text',
         '--mcp-config', mcpConfigPath,
         '--strict-mcp-config',

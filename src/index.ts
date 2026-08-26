@@ -7,7 +7,7 @@ import { runGatebotSession } from './claude-runner.js';
 import { startCallbackServer } from './callback-server.js';
 import { buildPrompt } from './system-prompt.js';
 import { downloadSlackFiles, type SlackFileRef } from './attachment-fetch.js';
-import { markThreadActive, isThreadActive, nextTurnIndex } from './thread-store.js';
+import { markThreadActive, isThreadActive, nextTurnIndex, getThreadMode, type ThreadMode } from './thread-store.js';
 import { logTurn } from './logger.js';
 import { getTeam, setTeam, clearTeam, TEAMS, TEAM_REPOS } from './team-registry.js';
 import { setPendingSelection, getPendingSelection, clearPendingSelection } from './team-selection-store.js';
@@ -77,15 +77,31 @@ async function buildThreadContext(
   return { text: lines.join('\n'), filesTmpDir };
 }
 
+/**
+ * 멘션 뒤 첫 단어로 커맨드를 판별한다.
+ * - `feedback`: 그 스레드는 끝까지 피드백 전용 모드로 고정된다 (thread-store.ts가 최초 1회만 mode를 기록).
+ * - `team`: 게이트봇 세션을 띄우지 않는 팀 등록 플로우로 분기된다 (`/planbot-team` 대체).
+ * - 그 외: 일반 Q&A.
+ */
+function detectMentionCommand(triggerText: string, botUserId: string): 'feedback' | 'team' | null {
+  const stripped = triggerText.replace(`<@${botUserId}>`, '').trim();
+  const firstWord = (stripped.split(/\s+/)[0] ?? '').toLowerCase();
+  if (firstWord === 'feedback') return 'feedback';
+  if (firstWord === 'team') return 'team';
+  return null;
+}
+
 async function handleTurn(opts: {
   channel: string;
   threadTs: string;
   triggerMessageTs: string;
   senderUserId: string | null;
   triggerText: string;
+  initialMode: ThreadMode;
 }): Promise<void> {
-  const { channel, threadTs, triggerMessageTs, senderUserId, triggerText } = opts;
-  markThreadActive(channel, threadTs);
+  const { channel, threadTs, triggerMessageTs, senderUserId, triggerText, initialMode } = opts;
+  markThreadActive(channel, threadTs, initialMode);
+  const mode = getThreadMode(channel, threadTs);
   const turnIndex = nextTurnIndex(channel, threadTs);
   const startedAt = Date.now();
 
@@ -116,7 +132,7 @@ async function handleTurn(opts: {
       senderUserId ? getTeam(senderUserId) : Promise.resolve(null),
     ]);
     const senderTeamRepos = senderTeam ? TEAM_REPOS[senderTeam] : null;
-    const prompt = buildPrompt(threadContext, senderTeam, senderTeamRepos);
+    const prompt = buildPrompt(threadContext, senderTeam, senderTeamRepos, mode);
 
     runGatebotSession({ prompt, token: job.token })
       .then(async () => {
@@ -169,16 +185,51 @@ async function handleTurn(opts: {
   }
 }
 
+// 발신자가 본인 소속 팀을 스스로 등록한다. 이후 이 사람이 대상 제품을 명시하지 않고 질문하면
+// (0번 상황분류 E) 이 팀을 힌트로 사용한다 — 고객사 쪽에 전체 인원 명단을 별도로 받을 필요가 없다.
+// UX: `@planbot team` 멘션 → 번호 매긴 팀 목록을 새 스레드로 올림 → 사용자가 그 스레드에 번호로 답글 → 등록.
+async function startTeamSelection(channel: string, userId: string): Promise<void> {
+  const currentTeam = await getTeam(userId);
+  const teams = TEAMS;
+  const deregisterIndex = currentTeam ? teams.length + 1 : null;
+
+  const lines = [
+    `<@${userId}>님, 소속팀을 선택해주세요. 이 스레드에 번호로 답글을 달아주세요.`,
+    ...teams.map((t, i) => `${i + 1}. ${t}`),
+  ];
+  if (deregisterIndex) {
+    lines.push(`${deregisterIndex}. 지금 팀 해제 (현재 등록: ${currentTeam})`);
+  }
+
+  const posted = await app.client.chat.postMessage({ channel, text: lines.join('\n') });
+
+  if (posted.ts) {
+    setPendingSelection(channel, posted.ts, { userId, teams, deregisterIndex });
+  }
+}
+
 // 스레드에서 처음 멘션됐을 때 — 스레드를 "활성"으로 등록하고 응답
+// 멘션 뒤 첫 단어가 `feedback`이면 이 스레드는 끝까지 자료 품질 평가 전용 모드로 고정된다.
+// 첫 단어가 `team`이면 게이트봇 세션 없이 팀 등록 플로우로 바로 분기한다.
 app.event('app_mention', async ({ event }) => {
   const channel = event.channel;
   const threadTs = event.thread_ts ?? event.ts;
+  const triggerText = event.text ?? '';
+  const botId = await getBotUserId();
+  const command = detectMentionCommand(triggerText, botId);
+
+  if (command === 'team') {
+    if (event.user) await startTeamSelection(channel, event.user);
+    return;
+  }
+
   await handleTurn({
     channel,
     threadTs,
     triggerMessageTs: event.ts,
     senderUserId: event.user ?? null,
-    triggerText: event.text ?? '',
+    triggerText,
+    initialMode: command === 'feedback' ? 'feedback' : 'qa',
   });
 });
 
@@ -198,39 +249,8 @@ app.message(async ({ message }) => {
     triggerMessageTs: m.ts,
     senderUserId: m.user ?? null,
     triggerText: m.text ?? '',
+    initialMode: getThreadMode(m.channel, m.thread_ts), // 이미 활성 스레드이므로 기록된 mode를 그대로 넘긴다 (markThreadActive가 덮어쓰지 않음)
   });
-});
-
-// 발신자가 본인 소속 팀을 스스로 등록한다. 이후 이 사람이 대상 제품을 명시하지 않고 질문하면
-// (0번 상황분류 E) 이 팀을 힌트로 사용한다 — 다우 쪽에 전체 인원 명단을 별도로 받을 필요가 없다.
-// UX: /planbot-team 만 입력 → 번호 매긴 팀 목록을 스레드로 올림 → 사용자가 번호로 답글 → 등록.
-app.command('/planbot-team', async ({ command, ack }) => {
-  await ack();
-
-  const currentTeam = await getTeam(command.user_id);
-  const teams = TEAMS;
-  const deregisterIndex = currentTeam ? teams.length + 1 : null;
-
-  const lines = [
-    `<@${command.user_id}>님, 소속팀을 선택해주세요. 이 스레드에 번호로 답글을 달아주세요.`,
-    ...teams.map((t, i) => `${i + 1}. ${t}`),
-  ];
-  if (deregisterIndex) {
-    lines.push(`${deregisterIndex}. 지금 팀 해제 (현재 등록: ${currentTeam})`);
-  }
-
-  const posted = await app.client.chat.postMessage({
-    channel: command.channel_id,
-    text: lines.join('\n'),
-  });
-
-  if (posted.ts) {
-    setPendingSelection(command.channel_id, posted.ts, {
-      userId: command.user_id,
-      teams,
-      deregisterIndex,
-    });
-  }
 });
 
 // 위 스레드에 번호로 답글이 오면 그 번호로 팀을 등록/해제한다. Q&A 흐름과는 별개 — 게이트봇 세션을 띄우지 않는다.

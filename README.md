@@ -6,10 +6,19 @@
 레포들을 탐색해 구현 가능성·공수를 답해준다. 개발팀에게 직접 묻지 않아도 되는 창구가 목적.
 
 단순 질의응답 창구에 그치지 않고 **기획서 품질 게이트** 역할도 겸한다. 질문에 실제 기획 내용(스펙 원고,
-화면 설명, 정책 조건)이 섞여 있으면 구현 가능성을 바로 답하지 않고, 타이밍 의존성·경계/전이 시점·화면-정책
-정합성·무기한 대기·용어 및 데이터 명확성 5개 렌즈로 먼저 스캔해 결여된 부분을 짚어준다. 상황별 대응 지침
-(순수 질문/기획 원고 포함/지라 티켓 번호만 제시/질문이 너무 광범위함/대상 제품 불특정)은
+화면 설명, 정책 조건)이 섞여 있으면 구현 가능성을 바로 답하지 않고, 구조화 부족·과도한 용량·텍스트의
+이미지 전달·자체 어휘 사용·UI 위치 특정 실패·AS-IS/TO-BE 미명시·검색 가능한 앵커 부재 7개 렌즈로 먼저
+스캔해 결여된 부분을 짚어준다. 논리적으로 상상 가능한 모든 엣지케이스를 캐묻지 않는다 — 코드베이스를
+이해하고 있다면 유추 가능한 내용은 결여로 치지 않고, 전달 형식·정밀도·추적가능성 문제만 짚는다.
+상황별 대응 지침(순수 질문/기획 원고 포함/지라 티켓 번호만 제시/질문이 너무 광범위함/대상 제품 불특정)은
 `src/system-prompt.ts`에 정의돼 있다.
+
+**`@planbot feedback <기획내용>`**: 구현 가능성/공수 판단 없이 위 7개 렌즈로만 자료 품질을 평가하는
+전용 모드. 멘션 뒤 첫 단어가 `feedback`이면 코드 레벨(`index.ts`의 `detectMentionCommand`)에서 결정론적으로
+트리거되고, 그 스레드는 이후 재멘션 없이 이어지는 답글까지 끝까지 이 모드로 고정된다(`thread-store.ts`).
+답변은 자유 서술형이되 맨 앞줄에 **판정: PASS(개발 착수 가능)** 또는 **판정: 명확화 필요**를 명시하고,
+걸린 렌즈마다 자료를 어떻게 고치면 되는지 구체적 개선 방법을 함께 준다. 어휘 일치 판단은 별도 용어집을
+만들지 않고, 원고의 개념어를 그때그때 레포에서 grep해 확인하는 방식이다.
 
 ## 아키텍처
 
@@ -37,23 +46,30 @@ job-token으로 세션을 구분하므로 동시에 여러 스레드에서 멘�
 매번 새로 뜨는 헤드리스 세션이어도 이전 턴 맥락은 항상 포함된다.
 
 **첨부파일**: `attachment-fetch.ts`가 스레드의 첨부파일을 실제로 다운로드해(20MB 상한) 임시 디렉터리에
-저장하고, 프롬프트에 로컬 절대경로를 남긴다. claude는 `--dangerously-skip-permissions`로 실행되므로
+저장하고, 프롬프트에 로컬 절대경로를 남긴다. claude는 `--allowedTools`에 Read가 포함돼 있으므로
 그 경로를 Read 툴로 직접 열어 내용을 확인할 수 있다 — 기획서가 텍스트가 아니라 PDF/이미지로 첨부돼도
 게이트 체크 대상이 된다. 다운로드한 임시 파일은 세션 종료 후 정리된다.
+
+**도구 범위**: 슬랙 스레드 텍스트·첨부가 그대로 프롬프트에 들어가 프롬프트 인젝션에 노출돼 있으므로,
+`--dangerously-skip-permissions` 대신 `--allowedTools`로 `Read`/`Grep`/`Glob`/`Bash(jira issue view:*)`/
+`mcp__planbot__reply_to_slack`만 허용한다. Write·Edit·임의 Bash 명령은 막혀 있어 claude가 레포에
+쓰기를 하거나 임의 명령을 실행할 수 없다 — 답변 생성 외의 부작용이 구조적으로 불가능하다.
+지라 조회는 [jira-cli](https://github.com/ankitpokhrel/jira-cli)(`jira issue view <TICKET-ID>`)가
+원격 PC에 설치·인증돼 있어야 동작한다.
 
 **로그**: `logger.ts`가 턴 하나당 JSONL 한 줄을 `logs/turns-YYYY-MM-DD.jsonl`에 append한다
 (발신자·질문 원문·지연시간·성공여부). 이 봇의 하네스(시스템 프롬프트) 개선 인사이트를 뽑는 용도.
 실제 기획 내용이 담기므로 `logs/`는 `.gitignore` 대상이며 절대 커밋하지 않는다.
 
-**팀 등록(`/planbot-team`)**: 슬래시 커맨드 하나로 번호 선택 플로우가 시작된다.
-1. `/planbot-team`만 입력(인자 없음)
+**팀 등록(`@planbot team`)**: 멘션 뒤 첫 단어가 `team`이면 게이트봇 세션 없이 번호 선택 플로우로 바로 분기한다.
+1. `@planbot team`만 멘션(추가 텍스트 없이)
 2. 봇이 새 스레드를 열어 선택 가능한 팀을 번호 목록으로 안내 (이미 등록된 사용자면 마지막 번호로
    "지금 팀 해제"가 추가됨)
 3. 사용자가 그 스레드에 번호로 답글
 4. 해당 번호의 팀으로 등록(또는 해제)
 
-`team-selection-store.ts`가 (channel, thread_ts) → 대기 중인 선택지를 기억하고, 커맨드를 실행한
-본인의 응답만 받는다. 이 흐름은 게이트봇 Q&A 세션(claude headless 실행)을 전혀 띄우지 않는
+`team-selection-store.ts`가 (channel, thread_ts) → 대기 중인 선택지를 기억하고, 멘션을 보낸 본인의
+응답만 받는다. 이 흐름은 게이트봇 Q&A 세션(claude headless 실행)을 전혀 띄우지 않는
 가벼운 별도 경로다. 등록된 팀은 이후 대상 제품을 명시하지 않은 질문(상황분류 E)에서 힌트로
 참고되며, `team-registry.ts`의 `TEAM_REPOS`로 담당 레포까지 탐색 우선순위 힌트로 넘어간다 —
 단, 메시지에 다른 제품/레포가 명시돼 있으면 그게 항상 우선이고, 힌트로 유추했을 땐 반드시 답변에
@@ -73,16 +89,11 @@ placeholder로만 유지하고, 실 배포 시 실제 값으로 교체한다. �
 - `files:read` — 첨부파일 다운로드(`url_private`) — 없으면 기획서 PDF/이미지 첨부를 못 읽음
 - `channels:history` (+ private 채널도 쓸 경우 `groups:history`) — 스레드 히스토리 조회
 - `users:read` — 작성자 이름 조회
-- `commands` — `/planbot-team` 슬래시 커맨드 수신
 
 **Event Subscriptions**
 - Bot Events에 `app_mention` 추가
 - **멀티턴(재멘션 없는 후속 답글) 지원을 위해 `message.channels` (private 채널도 쓸 경우 `message.groups`)도 추가 필요**
   — 이게 없으면 최초 멘션 이후 스레드 답글에 반응하지 못하고 매번 재멘션해야 함
-
-**Slash Commands**
-- `/planbot-team` 커맨드 생성 (Features → Slash Commands → Create New Command)
-  — Socket Mode 앱이라 Request URL은 필요 없음(비워둬도 됨), `commands` scope 필요
 
 **Socket Mode**
 - 활성화 + App-Level Token 발급 (`connections:write` scope 포함, `xapp-...`)

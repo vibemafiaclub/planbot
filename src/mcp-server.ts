@@ -29,12 +29,13 @@ server.registerTool(
         .enum(CLASSIFICATIONS)
         .describe(
           '시스템 프롬프트 "0. 상황 분류"에서 판단한 결과 (A=기획 원고 포함, B=순수 질문, ' +
-          'C=지라 티켓 번호만, D=질문이 너무 광범위, E=대상 제품 불특정). 반드시 채워야 한다 — 생략 불가.',
+          'C=지라 티켓 번호만, D=질문이 너무 광범위, E=대상 제품 불특정, F=`feedback` 커맨드). ' +
+          '반드시 채워야 한다 — 생략 불가.',
         ),
       gate_issues: z
         .array(z.enum(GATE_LENSES))
         .describe(
-          '"1. 게이트 체크" 5개 렌즈 중 실제로 걸린 항목의 id 목록. classification이 A(기획 원고 포함)가 ' +
+          '"게이트 체크" 렌즈 중 실제로 걸린 항목의 id 목록. classification이 A·F가 ' +
           '아니었거나, 체크했지만 걸린 게 없으면 빈 배열([])을 넣는다 — 필드 자체를 생략하지 않는다.',
         ),
     },

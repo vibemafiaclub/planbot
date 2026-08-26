@@ -12,15 +12,19 @@ const REGISTRY_PATH = path.join(DATA_DIR, 'team-registry.json');
  * 내용은 배포처마다 갈아끼우는 설정으로 취급한다. 사용자가 등록한 실제 매핑(누가 어느 팀인지)은
  * team-registry.json에 런타임 저장되며, 그건 data/와 함께 gitignore 대상이다.
  */
-export const TEAMS = ['팀A', '팀B', '팀C'] as const; // placeholder — 실 배포 시 실제 조직 팀명으로 교체
+export const TEAMS = ['팀A', '팀B', '팀C'] as const;
 export type Team = (typeof TEAMS)[number];
 
-/** 팀이 담당하는 REPO_ROOT 하위 레포 디렉터리명 — 팀이 정해지면 어느 레포부터 탐색할지 힌트로 쓴다. */
+/**
+ * 팀이 담당하는 REPO_ROOT 하위 레포 경로 — 팀이 정해지면 어느 레포부터 탐색할지 힌트로 쓴다.
+ * 실 배포 시 REPO_ROOT 아래 실제 폴더 구조에 맞게 교체할 것 (팀 폴더 1단계일 수도, 팀 폴더 안에
+ * workspace/레포 2단계로 중첩돼 있을 수도 있다 — 배포 환경마다 다르다).
+ */
 export const TEAM_REPOS: Record<Team, string[]> = {
   팀A: ['repo-a1', 'repo-a2'],
   팀B: ['repo-b1'],
   팀C: ['repo-c1', 'repo-c2'],
-}; // placeholder — 실 배포 시 실제 담당 레포명으로 교체
+};
 
 type Registry = Record<string, Team>; // slack user_id -> team
 
