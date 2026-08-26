@@ -17,7 +17,7 @@ export type Team = (typeof TEAMS)[number];
 
 /**
  * 팀이 담당하는 REPO_ROOT(=Desktop/repos) 하위 레포 경로 — 팀이 정해지면 어느 레포부터 탐색할지 힌트로 쓴다.
- * 원격 PC 실제 구조는 `{팀 폴더}/{workspace}/{레포}` 2단계 중첩.
+ * 원격 PC 실제 구조는 `{팀 폴더}/{workspace}/{레포}` 2단계 중첩. consulting-export-full은 무시 대상이라 제외.
  */
 export const TEAM_REPOS: Record<Team, string[]> = {
   팀A: [
