@@ -110,10 +110,17 @@ async function handleTurn(opts: {
   senderUserId: string | null;
   triggerText: string;
   initialMode: ThreadMode;
+  /**
+   * true면 이 스레드를 "활성"으로 등록해 이후 재멘션 없는 답글에도 반응한다.
+   * 봇 멘션으로 시작된 스레드(루트가 멘션)와 DM에만 true — 사람들끼리 대화하던 스레드에
+   * 봇이 도중 참전한 경우엔 false로, 이후에도 멘션에만 반응한다 (일반 대화에 끼어들지 않기 위함).
+   */
+  activateThread: boolean;
 }): Promise<void> {
-  const { channel, threadTs, triggerMessageTs, senderUserId, triggerText, initialMode } = opts;
-  markThreadActive(channel, threadTs, initialMode);
-  const mode = getThreadMode(channel, threadTs);
+  const { channel, threadTs, triggerMessageTs, senderUserId, triggerText, initialMode, activateThread } = opts;
+  if (activateThread) markThreadActive(channel, threadTs, initialMode);
+  // 활성 스레드는 기록된 모드로 고정, 비활성(멘션에만 반응) 스레드는 이번 멘션의 첫 단어로 매번 결정
+  const mode = isThreadActive(channel, threadTs) ? getThreadMode(channel, threadTs) : initialMode;
   const turnIndex = nextTurnIndex(channel, threadTs);
   const startedAt = Date.now();
 
@@ -263,12 +270,16 @@ async function applyTeamSelectionReply(
   return true;
 }
 
-// 스레드에서 처음 멘션됐을 때 — 스레드를 "활성"으로 등록하고 응답
-// 멘션 뒤 첫 단어가 `feedback`이면 이 스레드는 끝까지 자료 품질 평가 전용 모드로 고정된다.
+// 멘션됐을 때 — 응답하고, 조건에 따라 스레드를 "활성"으로 등록한다.
+// 활성 등록은 **봇 멘션으로 시작된 스레드**(이 멘션이 곧 스레드 루트)일 때만 한다.
+// 사람들끼리 대화하던 스레드에 도중 멘션된 경우엔 이번 턴만 답하고, 이후에도 멘션에만 반응한다
+// — 안 그러면 그 스레드의 모든 후속 답글(사람 간 대화 포함)에 봇이 끼어들게 된다.
+// 멘션 뒤 첫 단어가 `feedback`이면 피드백 전용 모드 (활성 스레드는 끝까지 고정, 비활성은 그 턴만).
 // 첫 단어가 `team`이면 게이트봇 세션 없이 팀 등록 플로우로 바로 분기한다.
 app.event('app_mention', async ({ event }) => {
   const channel = event.channel;
   if (channel.startsWith('D')) return; // 1:1 DM은 전용 message.im 핸들러가 처리 — 이중 응답 방지
+  const isThreadRoot = !event.thread_ts || event.thread_ts === event.ts;
   const threadTs = event.thread_ts ?? event.ts;
   const triggerText = event.text ?? '';
   const botId = await getBotUserId();
@@ -286,6 +297,7 @@ app.event('app_mention', async ({ event }) => {
     senderUserId: event.user ?? null,
     triggerText,
     initialMode: command === 'feedback' ? 'feedback' : 'qa',
+    activateThread: isThreadRoot,
   });
 });
 
@@ -305,7 +317,8 @@ app.message(async ({ message }) => {
     triggerMessageTs: m.ts,
     senderUserId: m.user ?? null,
     triggerText: m.text ?? '',
-    initialMode: getThreadMode(m.channel, m.thread_ts), // 이미 활성 스레드이므로 기록된 mode를 그대로 넘긴다 (markThreadActive가 덮어쓰지 않음)
+    initialMode: getThreadMode(m.channel, m.thread_ts), // 이미 활성 스레드이므로 기록된 mode를 그대로 넘긴다
+    activateThread: false, // 이미 활성인 스레드에서만 도달하는 경로
   });
 });
 
@@ -345,6 +358,7 @@ app.message(async ({ message }) => {
     senderUserId: m.user ?? null,
     triggerText: m.text ?? '',
     initialMode: firstWord === 'feedback' ? 'feedback' : 'qa',
+    activateThread: true, // DM은 항상 봇과의 대화이므로 봇 루트 스레드와 동일하게 취급
   });
 });
 
