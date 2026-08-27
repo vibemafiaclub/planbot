@@ -29,6 +29,7 @@ export const GATE_LENSES = [
   'ui_location_precision',
   'as_is_to_be_missing',
   'no_searchable_anchor',
+  'inaccessible_external_reference',
 ] as const;
 export type GateLens = (typeof GATE_LENSES)[number];
 
@@ -40,4 +41,5 @@ export const GATE_LENS_LABELS: Record<GateLens, string> = {
   ui_location_precision: 'UI 작업 위치를 어휘로 특정하지 못함 (시각적 마킹 의존)',
   as_is_to_be_missing: 'AS-IS/TO-BE 미명시 (수정 요청인 경우)',
   no_searchable_anchor: '코드베이스에서 검색 가능한 구체적 앵커 부재 (화면명·API·테이블·티켓번호 등)',
+  inaccessible_external_reference: 'AI가 접근 불가능한 외부 도구 링크로만 기획 존재 (Figma·위키 등) 또는 캡쳐 이미지에 본문 설명 부재',
 };
