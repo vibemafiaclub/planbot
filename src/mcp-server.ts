@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -99,6 +104,75 @@ server.registerTool(
           '이어서 reply_to_slack 답변에 이 사실(승인해야 등록됨)을 안내하라.',
       }],
     };
+  },
+);
+
+const GRAPHVIZ_BIN = process.env['GRAPHVIZ_BIN'] ?? 'dot';
+const DIAGRAM_FONT = process.env['DIAGRAM_FONT'] ?? 'Malgun Gothic';
+// 렌더 결과를 모아두는 디렉터리 — callback-server가 슬랙 업로드 후 같은 경로 규칙으로 파일을 정리한다.
+// (import로 공유하지 않는다: 이 모듈은 최상위에서 CALLBACK_URL을 요구하며 즉시 MCP 서버로 기동되기 때문)
+const DIAGRAM_TMP_DIR = path.join(os.tmpdir(), 'planbot-diagrams');
+
+server.registerTool(
+  'render_diagram',
+  {
+    title: '작동 흐름 다이어그램 렌더링',
+    description:
+      'Graphviz DOT 소스를 PNG로 렌더링하고 파일 절대경로를 반환한다. ' +
+      '반환된 경로를 reply_to_slack의 file_paths에 넣으면 슬랙에 이미지로 첨부된다. ' +
+      '렌더 실패 시 오류 메시지가 반환되므로 DOT를 고쳐 재호출할 수 있다.',
+    inputSchema: {
+      dot: z
+        .string()
+        .describe(
+          'Graphviz DOT 소스 (예: digraph { rankdir=LR; "주문 수집" -> "재고 확인" }). ' +
+          'fontname은 지정하지 말 것 — 시스템이 한글 폰트를 자동 적용한다.',
+        ),
+    },
+  },
+  async ({ dot }) => {
+    await mkdir(DIAGRAM_TMP_DIR, { recursive: true });
+    const base = path.join(DIAGRAM_TMP_DIR, `diagram-${crypto.randomBytes(6).toString('hex')}`);
+    const dotPath = `${base}.dot`;
+    const pngPath = `${base}.png`;
+    await writeFile(dotPath, dot, 'utf-8');
+
+    const result = await new Promise<{ code: number | null; stderr: string; spawnError?: string }>((resolve) => {
+      // -G/-N/-E fontname은 기본값 주입이라 소스에 명시된 속성이 있으면 그쪽이 우선한다.
+      const proc = spawn(GRAPHVIZ_BIN, [
+        '-Tpng',
+        `-Gfontname=${DIAGRAM_FONT}`,
+        `-Nfontname=${DIAGRAM_FONT}`,
+        `-Efontname=${DIAGRAM_FONT}`,
+        '-o', pngPath,
+        dotPath,
+      ]);
+      let stderr = '';
+      proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+      proc.on('close', (code) => resolve({ code, stderr }));
+      proc.on('error', (err) => resolve({ code: null, stderr, spawnError: String(err) }));
+    });
+
+    if (result.spawnError) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Graphviz 실행 실패: ${result.spawnError} — 원격 PC에 Graphviz(dot)가 설치돼 있지 않거나 ` +
+            'GRAPHVIZ_BIN 경로가 잘못됐을 수 있다. 다이어그램 없이 텍스트로만 답변하라.',
+        }],
+        isError: true,
+      };
+    }
+    if (result.code !== 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `DOT 렌더 실패 (exit ${result.code}): ${result.stderr.slice(0, 500)}\nDOT 문법을 고쳐 다시 호출하라 (최대 2회).`,
+        }],
+        isError: true,
+      };
+    }
+    return { content: [{ type: 'text', text: `렌더 완료: ${pngPath} — 이 경로를 reply_to_slack의 file_paths에 넣어라.` }] };
   },
 );
 

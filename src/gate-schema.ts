@@ -3,7 +3,7 @@
  * mcp-server.ts(reply_to_slack 입력 스키마)와 logger.ts(로그 필드)가 공유해서 드리프트를 막는다.
  */
 
-export const CLASSIFICATIONS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
+export const CLASSIFICATIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'S', 'X'] as const;
 export type Classification = (typeof CLASSIFICATIONS)[number];
 
 export const CLASSIFICATION_LABELS: Record<Classification, string> = {
@@ -13,6 +13,8 @@ export const CLASSIFICATION_LABELS: Record<Classification, string> = {
   D: '질문이 지나치게 광범위함',
   E: '대상 제품 불특정',
   F: '`feedback` 커맨드로 명시적 자료 품질 평가 요청',
+  S: '`search` 커맨드 — 과거 질의 기록 검색',
+  X: '`dev` 커맨드 — planbot 자체 개선 세션',
 };
 
 /**

@@ -17,6 +17,8 @@ export interface TurnLogEntry {
   sender_user_id: string | null;
   sender_name: string | null;
   question_text: string;
+  /** 턴 모드 (qa/feedback/dev/search). search 커맨드가 질의 기록만 걸러내는 데도 쓴다. */
+  mode?: string;
   classification: Classification | null;
   gate_issues: GateLens[];
   latency_ms: number;

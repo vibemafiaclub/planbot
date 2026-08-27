@@ -1,8 +1,11 @@
 import http from 'node:http';
+import { rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { WebClient } from '@slack/web-api';
 import { getJob, deleteJob, LOADING_REACTION } from './job-store.js';
 import { setProposal, TICKET_PATTERN } from './jira-comment.js';
-import { isThreadActive } from './thread-store.js';
+import { isUserActive } from './thread-store.js';
 import type { Classification, GateLens } from './gate-schema.js';
 
 interface ReplyBody {
@@ -65,8 +68,8 @@ export function startCallbackServer(client: WebClient, port: number): void {
           createdAt: Date.now(),
         });
 
-        // 도중 참전(비활성) 스레드에서는 멘션 없는 답글에 봇이 반응하지 않으므로 승인도 멘션으로 받아야 한다.
-        const approveHow = isThreadActive(job.channel, job.threadTs)
+        // 요청자의 자동 반응이 꺼져 있는 스레드에서는 멘션 없는 답글에 봇이 반응하지 않으므로 승인도 멘션으로 받아야 한다.
+        const approveHow = job.senderUserId && isUserActive(job.channel, job.threadTs, job.senderUserId)
           ? '이 스레드에 `등록`이라고 답글을 달면'
           : '이 스레드에 `@planbot 등록`이라고 답글을 달면';
         const who = job.senderUserId ? `<@${job.senderUserId}>님만 승인할 수 있습니다. ` : '';
@@ -116,6 +119,14 @@ export function startCallbackServer(client: WebClient, port: number): void {
           initial_comment: body.text,
           file_uploads: body.filePaths.map((p) => ({ file: p })),
         });
+        // render_diagram이 만든 임시 PNG는 업로드가 끝나면 정리한다 (그 외 경로는 건드리지 않는다)
+        const diagramDir = path.join(os.tmpdir(), 'planbot-diagrams');
+        for (const p of body.filePaths) {
+          if (path.resolve(p).startsWith(diagramDir)) {
+            await rm(p, { force: true }).catch(() => {});
+            await rm(p.replace(/\.png$/, '.dot'), { force: true }).catch(() => {});
+          }
+        }
       } else {
         await client.chat.postMessage({
           channel: job.channel,
